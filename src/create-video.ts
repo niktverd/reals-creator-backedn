@@ -159,7 +159,7 @@ const handler = async (req: Request, res: Response) => {
 
         const images = templates[req.query.template as string].images;
 
-        const fileSaved = [];
+        const fileSaved: string[] = [];
         let index = 0;
         for (const fileName in files) {
             if (images.length <= index) {
