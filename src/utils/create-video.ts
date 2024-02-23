@@ -20,15 +20,18 @@ export const createVideo = ({
     template = 'first',
     width,
     height,
+    paidUser,
 }: {
     imageFiles: string[];
     folder: string;
     template: string;
     width: number;
     height: number;
+    paidUser: boolean;
 }): Promise<string> => {
     return new Promise((resolve, reject) => {
-        const images = templates[template].images.map((piece: object, index: number) => {
+        const imagesArray = [...templates[template].images, paidUser ? [] : {loop: 3, path: ''}];
+        const images = imagesArray.map((piece: object, index: number) => {
             return {...piece, path: imageFiles[index]};
         });
 

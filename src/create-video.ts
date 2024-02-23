@@ -64,6 +64,7 @@ async function cropMain({
     fileName,
     index,
     time,
+    ratio,
 }: {
     imgPath: string;
     params: Record<string, string | number>;
@@ -71,15 +72,15 @@ async function cropMain({
     fileName: string;
     index: string;
     time: string;
+    ratio?: number;
 }) {
     const rotation = parseParamInt(params.rotation);
     const cropInfo = {
-        left: parseParamInt(params.x),
-        top: parseParamInt(params.y),
-        width: parseParamInt(params.width),
-        height: parseParamInt(params.height),
+        left: params.x ? parseParamInt(params.x) : 0,
+        top: params.y ? parseParamInt(params.y) : 0,
+        width: params.width ? parseParamInt(params.width) : 0,
+        height: params.height ? parseParamInt(params.height) : 0,
     };
-
     const width = parseParamInt(params.baseWidth, '100');
     const height = parseParamInt(params.baseHeight, '100');
 
@@ -87,6 +88,22 @@ async function cropMain({
     console.log('Getting meta...');
     const metadata = await treatingImage.metadata();
     const {width: widthPixel = 0, height: heightPixel = 0} = metadata;
+    if ((!params.x || !params.y || !params.width || params.height) && ratio) {
+        cropInfo.width = widthPixel;
+        if (heightPixel < widthPixel / ratio) {
+            cropInfo.height = heightPixel;
+            cropInfo.width = heightPixel * ratio;
+        } else {
+            cropInfo.height = widthPixel / ratio;
+        }
+
+        cropInfo.left = (widthPixel - cropInfo.width) / 2;
+        cropInfo.top = (heightPixel - cropInfo.height) / 2;
+        cropInfo.left = (cropInfo.left / widthPixel) * 100;
+        cropInfo.width = (cropInfo.width / widthPixel) * 100;
+        cropInfo.height = (cropInfo.height / heightPixel) * 100;
+        cropInfo.top = (cropInfo.top / heightPixel) * 100;
+    }
 
     console.log('Meta', {widthPixel, heightPixel, ...cropInfo});
 
@@ -151,6 +168,7 @@ const handler = async (req: Request, res: Response) => {
     const folderPath = resolve('./assets/output', requestName);
     mkdirSync(folderPath);
     const form = new IncomingForm({multiples: true});
+    // eslint-disable-next-line complexity
     form.parse(req, async function (err, fields, files) {
         if (err) {
             res.status(500).json({error: 'Error parsing form data'});
@@ -175,9 +193,8 @@ const handler = async (req: Request, res: Response) => {
                     if (f.originalFilename && param.includes(f.originalFilename)) {
                         const asString = req.query[param] as string;
                         const asNumber = Number(asString);
-                        params[param.split(`${f.originalFilename}.`)[1]] = isNaN(asNumber)
-                            ? asString
-                            : asNumber;
+                        const paramKey = param.split(`${f.originalFilename}.`)[1];
+                        params[paramKey] = isNaN(asNumber) ? asString : asNumber;
                     }
                 }
                 const finalFilePath = await cropMain({
@@ -193,6 +210,30 @@ const handler = async (req: Request, res: Response) => {
             }
         }
 
+        const ratio = Number(req.query.width) / Number(req.query.height);
+        if (!req.query.paidUser) {
+            const endingFile =
+                ratio < 1
+                    ? resolve('./assets/images/final-vertical.png')
+                    : ratio > 1
+                      ? resolve('./assets/images/final-horizontal.png')
+                      : resolve('./assets/images/final-horizontal.png');
+
+            const finalFilePath = await cropMain({
+                imgPath: endingFile,
+                params: {
+                    baseWidth: req.query.width as string,
+                    baseHeight: req.query.height as string,
+                },
+                folderPath,
+                fileName: 'ending',
+                index: (0).toString(),
+                time: (1).toString(),
+                ratio: ratio,
+            });
+            fileSaved.push(finalFilePath);
+        }
+
         res.status(200).json({message: 'check your profile in a few minutes'});
         const width = parseParamInt((req.query.width as string) || '');
         const height = parseParamInt((req.query.height as string) || '');
@@ -202,6 +243,7 @@ const handler = async (req: Request, res: Response) => {
             template: req.query.template as string,
             width,
             height,
+            paidUser: Boolean(req.query.paidUser),
         });
 
         const fileBuffer = readFileSync(outputFilePath);
