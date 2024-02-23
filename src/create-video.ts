@@ -216,6 +216,7 @@ const handler = async (req: Request, res: Response) => {
             description: '',
             template: req.query.template as string,
             externalLink: '',
+            createdAt: new Date(),
         });
     });
 };
