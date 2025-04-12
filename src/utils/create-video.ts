@@ -1,4 +1,5 @@
-import {mkdirSync} from 'fs';
+/* eslint-disable no-console */
+import {accessSync, constants, existsSync, mkdirSync} from 'fs';
 import {join} from 'path';
 
 import ffmpeg from 'fluent-ffmpeg';
@@ -18,14 +19,45 @@ const setupFfmpegEvents = (
             console.log('Encoding with command:', commandLine);
         })
         .on('error', (err: Error) => {
+            console.log('err:', err);
             reject(err);
+        })
+        .on('progress', (progress) => {
+            console.log(`Processing: ${progress}% done`);
+        })
+        .on('stderr', (stderrLine) => {
+            console.log(2, 'FFmpeg stderr:', stderrLine);
         })
         .on('end', () => {
             resolve(outputPath);
         });
 };
 
-export const createVideo = async ({
+// Verify that the directory is writable
+const ensureDirectoryExists = (dirPath: string): boolean => {
+    try {
+        // First check if directory exists
+        if (!existsSync(dirPath)) {
+            console.log(`Directory ${dirPath} does not exist, creating it...`);
+            mkdirSync(dirPath, {recursive: true});
+        }
+
+        try {
+            // Check if directory is writable
+            accessSync(dirPath, constants.W_OK);
+            console.log(`Directory ${dirPath} is writable`);
+            return true;
+        } catch (err) {
+            console.error(`Directory ${dirPath} is not writable:`, err);
+            return false;
+        }
+    } catch (err) {
+        console.error(`Error creating directory ${dirPath}:`, err);
+        return false;
+    }
+};
+
+export const createVideo = ({
     imageFiles,
     folder,
     template = 'first',
@@ -40,18 +72,23 @@ export const createVideo = async ({
     height: number;
     paidUser: boolean;
 }): Promise<string> => {
-    // Ensure the output directory exists
-    try {
-        mkdirSync(folder, {recursive: true});
-    } catch (err) {
-        console.error(`Error creating directory ${folder}:`, err);
-    }
-
     return new Promise((resolve, reject) => {
+        // Debug input params
+        console.log('Create video params:', {folder, template, width, height, paidUser});
+        console.log('Image files count:', imageFiles.length);
+
+        // Ensure the output directory exists and is writable
+        if (!ensureDirectoryExists(folder)) {
+            reject(new Error(`Unable to write to directory: ${folder}`));
+            return;
+        }
+
         // Get template configuration
         const templateConfig = templates[template];
         const soundPath = join(process.cwd(), 'assets/audio', templateConfig.sound);
         const outputPath = join(folder, 'output.mp4');
+
+        console.log(`Creating video at: ${outputPath}`);
 
         // Create a new ffmpeg command
         const command = ffmpeg();
@@ -64,6 +101,7 @@ export const createVideo = async ({
 
         // Process each image according to template configuration
         const validImages: {index: number; duration: number}[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         templateImages.forEach((imgConfig: any, index: number) => {
             if (imageFiles[index] && imageFiles[index].trim() !== '') {
                 const duration = imgConfig.loop || 5; // Default to 5 seconds if not specified
@@ -95,21 +133,19 @@ export const createVideo = async ({
             command.complexFilter(complexFilter);
 
             // Map the output video and audio streams
-            command
-                .outputOptions([
-                    '-map [outv]',
-                    `-map ${validImages.length}:a`, // Audio is the last input
-                    '-c:v libx264',
-                    '-c:a aac',
-                    '-pix_fmt yuv420p',
-                    '-r 60', // fps
-                    '-b:v 1024k', // video bitrate
-                    '-shortest', // End when shortest input stream ends
-                ])
-                .size(`${width}x${height}`);
+            command.outputOptions([
+                '-map [outv]',
+                `-map ${validImages.length}:a`, // Audio is the last input
+                '-c:v libx264',
+                '-c:a aac',
+                '-pix_fmt yuv420p',
+                '-r 60', // fps
+                '-b:v 1024k', // video bitrate
+                '-shortest', // End when shortest input stream ends
+            ]);
         }
 
-        // Set output file and ensure overwrite
+        // Use a simple output option to avoid conflicts
         command.output(outputPath).outputOption('-y');
 
         // Setup event handlers
