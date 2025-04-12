@@ -1,3 +1,4 @@
+import {mkdirSync} from 'fs';
 import {join} from 'path';
 
 import ffmpeg from 'fluent-ffmpeg';
@@ -24,7 +25,7 @@ const setupFfmpegEvents = (
         });
 };
 
-export const createVideo = ({
+export const createVideo = async ({
     imageFiles,
     folder,
     template = 'first',
@@ -39,6 +40,13 @@ export const createVideo = ({
     height: number;
     paidUser: boolean;
 }): Promise<string> => {
+    // Ensure the output directory exists
+    try {
+        mkdirSync(folder, {recursive: true});
+    } catch (err) {
+        console.error(`Error creating directory ${folder}:`, err);
+    }
+
     return new Promise((resolve, reject) => {
         // Get template configuration
         const templateConfig = templates[template];
@@ -101,10 +109,13 @@ export const createVideo = ({
                 .size(`${width}x${height}`);
         }
 
-        // Set output file
-        command.save(outputPath);
+        // Set output file and ensure overwrite
+        command.output(outputPath).outputOption('-y');
 
         // Setup event handlers
         setupFfmpegEvents(command, resolve, reject, outputPath);
+
+        // Execute the command
+        command.run();
     });
 };
