@@ -55,10 +55,12 @@ export const createVideo = ({
         }
 
         // Process each image according to template configuration
+        const validImages: {index: number; duration: number}[] = [];
         templateImages.forEach((imgConfig: any, index: number) => {
-            if (imageFiles[index]) {
+            if (imageFiles[index] && imageFiles[index].trim() !== '') {
                 const duration = imgConfig.loop || 5; // Default to 5 seconds if not specified
                 command.input(imageFiles[index]).inputOptions([`-loop 1`, `-t ${duration}`]);
+                validImages.push({index, duration});
             }
         });
 
@@ -69,15 +71,13 @@ export const createVideo = ({
         const filterInputs: string[] = [];
         const filterOutputs: string[] = [];
 
-        // Create filter inputs and outputs for each image
-        for (let i = 0; i < templateImages.length; i++) {
-            if (imageFiles[i]) {
-                filterInputs.push(
-                    `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`,
-                );
-                filterOutputs.push(`[v${i}]`);
-            }
-        }
+        // Create filter inputs and outputs for each valid image
+        validImages.forEach((img, i) => {
+            filterInputs.push(
+                `[${img.index}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`,
+            );
+            filterOutputs.push(`[v${i}]`);
+        });
 
         // Concatenate all video streams
         if (filterOutputs.length > 0) {
@@ -90,7 +90,7 @@ export const createVideo = ({
             command
                 .outputOptions([
                     '-map [outv]',
-                    `-map ${templateImages.length}:a`,
+                    `-map ${validImages.length}:a`, // Audio is the last input
                     '-c:v libx264',
                     '-c:a aac',
                     '-pix_fmt yuv420p',
